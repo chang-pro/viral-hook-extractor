@@ -1,0 +1,4 @@
+google-genai>=1.7.0
+opencv-python>=4.9.0
+mediapipe>=0.10.0
+python-dotenv>=1.0.0
