@@ -1,139 +1,235 @@
-"""Generate SRT subtitles from Gemini transcript and burn into clips."""
+"""Generate ASS karaoke captions and burn them into clips."""
 import os
+import re
 import tempfile
-from utils import seconds_to_srt_time, run_ffmpeg
 
-WORDS_PER_LINE = 4      # max words per subtitle line
-MAX_LINE_DURATION = 2.5 # max seconds a subtitle line stays on screen
+from utils import run_ffmpeg
 
 
-def _group_words_into_lines(words_with_times: list[tuple[str, float]], clip_start: float) -> list[dict]:
-    """
-    Group word-timestamp pairs into subtitle lines.
-    Returns list of {start, end, text} dicts (times relative to clip start).
-    """
-    if not words_with_times:
+ASS_HEADER = """[Script Info]
+ScriptType: v4.00+
+PlayResX: 1080
+PlayResY: 1920
+ScaledBorderAndShadow: yes
+WrapStyle: 2
+
+[V4+ Styles]
+Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding
+Style: Hook,Arial,80,&H00FFFFFF,&H0000A5FF,&H00101010,&H64000000,1,0,0,0,100,100,0,0,1,3,0,8,80,80,240,1
+Style: Caption,Arial,64,&H00FFFFFF,&H0000A5FF,&H00101010,&H64000000,1,0,0,0,100,100,0,0,1,3,0,2,70,70,160,1
+
+[Events]
+Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
+"""
+
+
+def _seconds_to_ass_time(seconds: float) -> str:
+    if seconds < 0:
+        seconds = 0.0
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centis = int(round((seconds - int(seconds)) * 100))
+    if centis == 100:
+        secs += 1
+        centis = 0
+    if secs == 60:
+        minutes += 1
+        secs = 0
+    if minutes == 60:
+        hours += 1
+        minutes = 0
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centis:02d}"
+
+
+def _escape_ass_text(text: str) -> str:
+    text = text.replace("\\", r"\\")
+    text = text.replace("{", r"\{").replace("}", r"\}")
+    return text.replace("\n", r"\N")
+
+
+def _normalize_transcript(transcript: list) -> list[tuple[str, float]]:
+    words = []
+    for entry in transcript or []:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            continue
+        word, timestamp = entry[0], entry[1]
+        if not isinstance(timestamp, (int, float)):
+            continue
+        clean_word = str(word).strip()
+        if clean_word:
+            words.append((clean_word, float(timestamp)))
+    return sorted(words, key=lambda item: item[1])
+
+
+def _parse_srt_timestamp(value: str) -> float:
+    hours, minutes, rest = value.split(":")
+    seconds, millis = rest.split(",")
+    return (
+        int(hours) * 3600
+        + int(minutes) * 60
+        + int(seconds)
+        + int(millis) / 1000.0
+    )
+
+
+def _iter_srt_blocks(srt_content: str):
+    blocks = re.split(r"\r?\n\s*\r?\n", srt_content.strip())
+    for block in blocks:
+        lines = [line.strip("\ufeff") for line in block.splitlines() if line.strip()]
+        if len(lines) < 2:
+            continue
+        if "-->" not in lines[0] and len(lines) >= 3 and "-->" in lines[1]:
+            lines = lines[1:]
+        if "-->" not in lines[0]:
+            continue
+        start_raw, end_raw = [part.strip() for part in lines[0].split("-->", 1)]
+        text = " ".join(lines[1:]).strip()
+        if not text:
+            continue
+        yield {
+            "start": _parse_srt_timestamp(start_raw),
+            "end": _parse_srt_timestamp(end_raw),
+            "text": text,
+        }
+
+
+def _srt_to_ass_events(
+    srt_content: str,
+    clip_start: float,
+    clip_end: float | None = None,
+) -> list[str]:
+    events = []
+    for cue in _iter_srt_blocks(srt_content):
+        if cue["end"] <= clip_start:
+            continue
+        if clip_end is not None and cue["start"] >= clip_end:
+            continue
+        rel_start = max(0.0, cue["start"] - clip_start)
+        rel_end = cue["end"] - clip_start
+        if clip_end is not None:
+            rel_end = min(rel_end, clip_end - clip_start)
+        if rel_end <= rel_start:
+            continue
+        text = _escape_ass_text(cue["text"])
+        events.append(
+            "Dialogue: 0,{start},{end},Caption,,0,0,0,,{text}".format(
+                start=_seconds_to_ass_time(rel_start),
+                end=_seconds_to_ass_time(rel_end),
+                text=text,
+            )
+        )
+    return events
+
+
+def _transcript_to_ass_events(
+    transcript: list,
+    clip_start: float = 0.0,
+    hook_line: str = "",
+) -> list[str]:
+    words = _normalize_transcript(transcript)
+    if not words and not hook_line:
         return []
 
-    lines = []
-    current_words = []
-    current_start = None
+    events = []
 
-    for word, abs_time in words_with_times:
-        rel_time = abs_time - clip_start
-        if rel_time < -1.0:
-            continue  # word is before this clip
-
-        if current_start is None:
-            current_start = max(0.0, rel_time)
-
-        current_words.append((word, rel_time))
-
-        line_duration = rel_time - current_start
-        if len(current_words) >= WORDS_PER_LINE or line_duration >= MAX_LINE_DURATION:
-            line_end = rel_time + 0.3
-            lines.append({
-                "start": current_start,
-                "end": line_end,
-                "text": " ".join(w for w, _ in current_words)
-            })
-            current_words = []
-            current_start = None
-
-    # Flush remaining words
-    if current_words:
-        last_time = current_words[-1][1]
-        lines.append({
-            "start": current_start,
-            "end": last_time + 1.0,
-            "text": " ".join(w for w, _ in current_words)
-        })
-
-    return lines
-
-
-def generate_srt(transcript: list, clip_start: float = 0.0) -> str:
-    """
-    Generate SRT content from a transcript.
-
-    transcript: list of [word, timestamp] pairs from Gemini
-    clip_start: absolute timestamp where the clip starts (to make relative)
-    """
-    if not transcript:
-        return ""
-
-    # Normalise: accept [[word, time], ...] or [[word, time], ...]
-    words_with_times = []
-    for entry in transcript:
-        if isinstance(entry, (list, tuple)) and len(entry) >= 2:
-            word, t = entry[0], entry[1]
-            if isinstance(t, (int, float)):
-                words_with_times.append((str(word), float(t)))
-
-    if not words_with_times:
-        return ""
-
-    lines = _group_words_into_lines(words_with_times, clip_start)
-
-    srt_parts = []
-    for i, line in enumerate(lines, start=1):
-        srt_parts.append(
-            f"{i}\n"
-            f"{seconds_to_srt_time(line['start'])} --> {seconds_to_srt_time(line['end'])}\n"
-            f"{line['text']}\n"
+    if hook_line:
+        events.append(
+            "Dialogue: 0,{start},{end},Hook,,0,0,0,,{text}".format(
+                start=_seconds_to_ass_time(0.0),
+                end=_seconds_to_ass_time(1.8),
+                text=_escape_ass_text(hook_line.upper()),
+            )
         )
 
-    return "\n".join(srt_parts)
+    if not words:
+        return events
+
+    for index, (word, abs_time) in enumerate(words):
+        rel_start = max(0.0, abs_time - clip_start)
+        next_abs = words[index + 1][1] if index + 1 < len(words) else abs_time + 0.55
+        rel_end = max(rel_start + 0.12, next_abs - clip_start)
+        duration_cs = max(12, int(round((rel_end - rel_start) * 100)))
+        text = "{\\k%d}%s" % (duration_cs, _escape_ass_text(word))
+        events.append(
+            "Dialogue: 0,{start},{end},Caption,,0,0,0,,{text}".format(
+                start=_seconds_to_ass_time(rel_start),
+                end=_seconds_to_ass_time(rel_end),
+                text=text,
+            )
+        )
+
+    return events
 
 
-def burn_captions(
-    input_path: str,
-    srt_content: str,
-    output_path: str,
+def generate_ass(
+    transcript: list,
+    clip_start: float = 0.0,
+    hook_line: str = "",
 ) -> str:
-    """
-    Burn SRT subtitles into a video using FFmpeg.
-    If srt_content is empty, just copies the file.
-    Returns output_path.
-    """
-    if not srt_content.strip():
-        # No captions — just copy
-        run_ffmpeg(["-i", input_path, "-c", "copy", output_path],
-                   f"copy (no captions) {os.path.basename(output_path)}")
+    events = _transcript_to_ass_events(transcript, clip_start=clip_start, hook_line=hook_line)
+    if not events:
+        return ""
+    return ASS_HEADER + "\n".join(events) + "\n"
+
+
+def generate_ass_from_srt(
+    srt_content: str,
+    clip_start: float,
+    clip_end: float | None = None,
+    hook_line: str = "",
+) -> str:
+    events = []
+    if hook_line:
+        events.append(
+            "Dialogue: 0,{start},{end},Hook,,0,0,0,,{text}".format(
+                start=_seconds_to_ass_time(0.0),
+                end=_seconds_to_ass_time(1.8),
+                text=_escape_ass_text(hook_line.upper()),
+            )
+        )
+    events.extend(_srt_to_ass_events(srt_content, clip_start=clip_start, clip_end=clip_end))
+    if not events:
+        return ""
+    return ASS_HEADER + "\n".join(events) + "\n"
+
+
+def burn_captions(input_path: str, ass_content: str, output_path: str) -> str:
+    """Burn ASS subtitles into a video using FFmpeg."""
+    if not ass_content.strip():
+        run_ffmpeg(
+            ["-i", input_path, "-c", "copy", output_path],
+            f"copy (no captions) {os.path.basename(output_path)}",
+        )
         return output_path
 
-    # Write SRT to a temp file
-    srt_fd, srt_path = tempfile.mkstemp(suffix=".srt")
+    ass_fd, ass_path = tempfile.mkstemp(suffix=".ass")
     try:
-        with os.fdopen(srt_fd, "w", encoding="utf-8") as f:
-            f.write(srt_content)
+        with os.fdopen(ass_fd, "w", encoding="utf-8") as handle:
+            handle.write(ass_content)
 
-        # FFmpeg subtitles filter — escape backslashes for Windows paths
-        srt_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
-
-        subtitle_style = (
-            "FontName=Arial,"
-            "FontSize=16,"
-            "Bold=1,"
-            "Outline=2,"
-            "PrimaryColour=&H00FFFFFF,"  # white
-            "OutlineColour=&H00000000,"  # black outline
-            "Alignment=2,"               # bottom center
-            "MarginV=40"
+        ass_escaped = ass_path.replace("\\", "/").replace(":", "\\:")
+        run_ffmpeg(
+            [
+                "-i",
+                input_path,
+                "-vf",
+                f"ass='{ass_escaped}'",
+                "-c:v",
+                "libx264",
+                "-c:a",
+                "aac",
+                "-preset",
+                "fast",
+                "-crf",
+                "23",
+                output_path,
+            ],
+            f"burn captions {os.path.basename(output_path)}",
         )
-
-        run_ffmpeg([
-            "-i", input_path,
-            "-vf", f"subtitles='{srt_escaped}':force_style='{subtitle_style}'",
-            "-c:v", "libx264",
-            "-c:a", "aac",
-            "-preset", "fast",
-            "-crf", "23",
-            output_path
-        ], f"burn captions {os.path.basename(output_path)}")
     finally:
         try:
-            os.remove(srt_path)
+            os.remove(ass_path)
         except OSError:
             pass
 

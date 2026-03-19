@@ -18,7 +18,8 @@ from chunker import chunk_video, get_duration
 from analyzer import analyze_video
 from cutter import cut_clip
 from reframer import reframe_clip
-from captioner import generate_ass, burn_captions
+from captioner import generate_ass, generate_ass_from_srt, burn_captions
+from thumbnailer import extract_thumbnail
 from utils import ensure_dir, cleanup_files
 
 
@@ -37,6 +38,10 @@ def parse_args():
                         help="Use face detection for smarter 9:16 reframing (slower)")
     parser.add_argument("--output", default="output",
                         help="Output directory (default: ./output)")
+    parser.add_argument("--captions-srt", default="",
+                        help="Optional source-video SRT file to use for captions instead of Gemini transcript")
+    parser.add_argument("--save-thumbnails", action="store_true",
+                        help="Export thumbnail JPGs at Gemini's suggested timestamps")
     return parser.parse_args()
 
 
@@ -74,14 +79,26 @@ def main():
         sys.exit(1)
 
     output_dir = ensure_dir(args.output)
+    thumbnails_dir = ensure_dir(os.path.join(output_dir, "thumbnails")) if args.save_thumbnails else ""
     temp_dir = tempfile.mkdtemp(prefix="clipper_")
     temp_files_to_clean = [temp_dir]
+    captions_srt_content = ""
+
+    if args.captions_srt:
+        srt_path = os.path.abspath(args.captions_srt)
+        if not os.path.isfile(srt_path):
+            print(f"ERROR: SRT file not found: {srt_path}")
+            sys.exit(1)
+        with open(srt_path, "r", encoding="utf-8-sig") as handle:
+            captions_srt_content = handle.read()
 
     print(f"\nJamaican Video Clip Extractor")
     print(f"{'='*40}")
     print(f"Input:   {os.path.basename(video_path)}")
     print(f"Clips:   {args.clips}")
     print(f"Output:  {output_dir}/")
+    if captions_srt_content:
+        print(f"Captions: external SRT ({os.path.basename(args.captions_srt)})")
     print()
 
     try:
@@ -106,7 +123,7 @@ def main():
         hooks_path = os.path.join(output_dir, "hooks.json")
         with open(hooks_path, "w", encoding="utf-8") as f:
             json.dump(hooks, f, indent=2, ensure_ascii=False)
-        print(f"  Saved hook data → {hooks_path}")
+        print(f"  Saved hook data -> {hooks_path}")
 
         # Steps 4 & 5: Cut, reframe, caption
         print(f"\nStep 4/5: Cutting clips...")
@@ -124,13 +141,14 @@ def main():
             vscore = hook.get("virality_score") or hook.get("score", "?")
             htype = hook.get("type", "unknown")
             print(f"  Clip {i+1}: virality={vscore} type={htype} "
-                  f"({hook['start']:.1f}s – {hook['end']:.1f}s)")
+                  f"({hook['start']:.1f}s - {hook['end']:.1f}s)")
 
         print(f"\nStep 5/5: Reframing to 9:16 and burning captions...")
         final_clips = []
         for i, hook, raw_path in raw_clips:
             vscore = hook.get("virality_score") or round((hook.get("score", 0)) * 10)
             htype = hook.get("type", "unknown")
+            hook_line = hook.get("hook_line", "")
 
             # Reframe to 9:16
             reframed_path = os.path.join(temp_dir, f"reframed_{i:02d}.mp4")
@@ -138,15 +156,36 @@ def main():
 
             # Generate karaoke captions (.ass format)
             clip_start_abs = max(0.0, hook["start"] - 1.5)  # account for pad_start
-            ass = generate_ass(hook.get("transcript", []), clip_start_abs)
+            clip_end_abs = min(video_duration, hook["end"] + 1.0)
+            if captions_srt_content:
+                ass = generate_ass_from_srt(
+                    captions_srt_content,
+                    clip_start=clip_start_abs,
+                    clip_end=clip_end_abs,
+                    hook_line=hook_line,
+                )
+            else:
+                ass = generate_ass(
+                    hook.get("transcript", []),
+                    clip_start=clip_start_abs,
+                    hook_line=hook_line,
+                )
 
             # Burn captions
             final_name = f"clip_{i+1:02d}_virality{vscore}_{htype}.mp4"
             final_path = os.path.join(output_dir, final_name)
             burn_captions(reframed_path, ass, final_path)
+            if args.save_thumbnails:
+                thumb_name = f"clip_{i+1:02d}_thumb.jpg"
+                thumb_path = os.path.join(thumbnails_dir, thumb_name)
+                extract_thumbnail(
+                    video_path,
+                    hook.get("thumbnail_time", hook["start"]),
+                    thumb_path,
+                )
 
             final_clips.append(final_path)
-            print(f"  → {final_name}")
+            print(f"  -> {final_name}")
 
         # Print summary
         print(f"\n{'='*40}")
