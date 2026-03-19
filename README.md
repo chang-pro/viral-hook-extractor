@@ -1,6 +1,6 @@
-# Jamaican Video Clip Extractor
+# Viral Hook Extractor
 
-Replaces Opus Clip for Jamaican drama/lifestyle content. Instead of transcribing first (which fails on patois), it sends the video directly to Gemini AI — which watches and understands the content in full context — then cuts the best hooks as vertical 9:16 clips with burned-in captions.
+Open source AI video clipper for finding high-retention hooks in long videos. Built for Jamaican drama and lifestyle content, but useful for any talking-head or narrative video where generic transcription-first tools miss the real moment. Instead of transcribing first, it sends the video directly to Gemini AI, then cuts the best hooks as vertical 9:16 clips with burned-in captions.
 
 ## What it does
 
