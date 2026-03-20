@@ -77,6 +77,12 @@ label span {
   font: 700 14px/1.2 Arial, sans-serif;
 }
 
+.field-title {
+  display: block;
+  margin-bottom: 10px;
+  font: 700 14px/1.2 Arial, sans-serif;
+}
+
 input[type="file"],
 input[type="number"],
 textarea {
@@ -91,6 +97,13 @@ textarea {
   resize: vertical;
   min-height: 110px;
   font: 14px/1.5 Arial, sans-serif;
+}
+
+small {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font: 13px/1.45 Arial, sans-serif;
 }
 
 .check {
@@ -118,6 +131,70 @@ textarea {
 
 .wide {
   grid-column: 1 / -1;
+}
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.preset-card {
+  display: block;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  background: white;
+}
+
+.preset-card input {
+  margin-right: 8px;
+}
+
+.preset-card strong {
+  display: block;
+  font: 700 15px/1.25 Arial, sans-serif;
+}
+
+.custom-range {
+  padding: 16px;
+  border: 1px dashed var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.inline-grid,
+.advanced-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.advanced {
+  padding: 16px;
+  border: 1px dashed var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+.advanced summary {
+  cursor: pointer;
+  font: 700 15px/1.2 Arial, sans-serif;
+}
+
+.advanced-grid {
+  margin-top: 16px;
+  align-items: start;
+}
+
+.help {
+  margin: 0;
+  color: var(--muted);
+  font: 13px/1.45 Arial, sans-serif;
+}
+
+.explainer p {
+  font: 15px/1.6 Arial, sans-serif;
 }
 
 .error {

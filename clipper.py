@@ -25,6 +25,12 @@ from utils import ensure_dir, cleanup_files
 
 
 BASE_DIR = Path(__file__).resolve().parent
+DURATION_PRESETS = {
+    "short": (30.0, 60.0),
+    "medium": (60.0, 180.0),
+    "long": (180.0, 300.0),
+    "custom": None,
+}
 
 
 def parse_args():
@@ -34,6 +40,8 @@ def parse_args():
     parser.add_argument("video", help="Path to input video file (MP4)")
     parser.add_argument("--clips", type=int, default=5,
                         help="Number of clips to extract (default: 5)")
+    parser.add_argument("--length-preset", default="short", choices=sorted(DURATION_PRESETS.keys()),
+                        help="Clip length preset: short=30-60s, medium=1-3m, long=3-5m, custom=use --min/--max")
     parser.add_argument("--min", type=float, default=20, dest="min_duration",
                         help="Minimum clip duration in seconds (default: 20)")
     parser.add_argument("--max", type=float, default=60, dest="max_duration",
@@ -67,9 +75,21 @@ def validate_hook_duration(hook: dict, min_dur: float, max_dur: float) -> dict:
     return {**hook, "end": round(end, 2)}
 
 
+def resolve_duration_settings(length_preset: str, min_duration: float, max_duration: float) -> tuple[str, float, float]:
+    """Resolve UI/CLI duration preset into concrete min/max values."""
+    preset = (length_preset or "short").strip().lower()
+    if preset not in DURATION_PRESETS:
+        raise ValueError(f"Unknown length preset: {preset}")
+    preset_range = DURATION_PRESETS[preset]
+    if preset_range is None:
+        return preset, min_duration, max_duration
+    return preset, preset_range[0], preset_range[1]
+
+
 def run_pipeline(
     video_path: str,
     clips: int = 5,
+    length_preset: str = "short",
     min_duration: float = 20.0,
     max_duration: float = 60.0,
     face_track: bool = False,
@@ -87,6 +107,11 @@ def run_pipeline(
         )
     if clips < 1:
         raise ValueError("clips must be at least 1")
+    length_preset, min_duration, max_duration = resolve_duration_settings(
+        length_preset,
+        min_duration,
+        max_duration,
+    )
     if min_duration <= 0 or max_duration <= 0:
         raise ValueError("Clip durations must be positive.")
     if min_duration > max_duration:
@@ -113,6 +138,7 @@ def run_pipeline(
     print(f"{'='*40}")
     print(f"Input:   {os.path.basename(video_path)}")
     print(f"Clips:   {clips}")
+    print(f"Preset:  {length_preset} ({int(min_duration)}s to {int(max_duration)}s)")
     print(f"Output:  {output_dir}/")
     if captions_srt_content:
         print(f"Captions: external SRT ({os.path.basename(captions_srt_path)})")
@@ -253,6 +279,7 @@ def main():
         run_pipeline(
             video_path=args.video,
             clips=args.clips,
+            length_preset=args.length_preset,
             min_duration=args.min_duration,
             max_duration=args.max_duration,
             face_track=args.face_track,

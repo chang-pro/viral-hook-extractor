@@ -67,6 +67,7 @@ def run_job():
         result = run_pipeline(
             video_path=str(video_path),
             clips=clips,
+            length_preset=request.form.get("length_preset", "short"),
             min_duration=min_duration,
             max_duration=max_duration,
             face_track=bool(request.form.get("face_track")),
