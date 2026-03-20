@@ -208,6 +208,7 @@ def analyze_video(
     client = genai.Client(api_key=api_key)
     all_hooks = []
     prompt = build_hook_prompt(focus_prompt)
+    errors = []
 
     for i, (offset, chunk_path) in enumerate(chunks):
         label = f"chunk {i+1}/{len(chunks)}"
@@ -216,9 +217,13 @@ def analyze_video(
             hooks = _adjust_timestamps(hooks, offset)
             all_hooks.extend(hooks)
         except Exception as e:
+            errors.append((label, str(e)))
             print(f"  WARNING: Failed to analyze {label}: {e}")
 
     if not all_hooks:
+        if errors:
+            joined = " | ".join(f"{label}: {message}" for label, message in errors)
+            raise RuntimeError(f"Gemini analysis failed. {joined}")
         raise RuntimeError("Gemini found no hooks in the video. Try a different video or check your API key.")
 
     merged = _deduplicate_hooks(all_hooks)

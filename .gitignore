@@ -17,9 +17,13 @@ env/
 # Output / temp files
 output/
 temp/
+tmp_test/
+web_runs/
+web_uploads/
 *.mp4
 *.srt
 *.ass
+*.jpg
 
 # OS
 .DS_Store
