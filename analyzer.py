@@ -65,6 +65,19 @@ Rules:
 """
 
 
+def build_hook_prompt(focus_prompt: str = "") -> str:
+    """Build the final Gemini prompt with optional user focus guidance."""
+    focus_prompt = (focus_prompt or "").strip()
+    if not focus_prompt:
+        return HOOK_PROMPT
+    return (
+        HOOK_PROMPT
+        + "\n\nAdditional user instructions for this run:\n"
+        + focus_prompt
+        + "\nPrioritize clips that satisfy these extra instructions if they are present in the video."
+    )
+
+
 def _wait_for_file(client: genai.Client, file_name: str, timeout: int = 180) -> object:
     """Poll until file state is ACTIVE or raise on timeout/failure."""
     deadline = time.time() + timeout
@@ -95,7 +108,12 @@ def _parse_hooks(text: str) -> list[dict]:
         raise ValueError(f"Could not parse Gemini response as JSON: {e}\nResponse was:\n{text[:500]}")
 
 
-def _analyze_chunk(client: genai.Client, chunk_path: str, chunk_label: str) -> list[dict]:
+def _analyze_chunk(
+    client: genai.Client,
+    chunk_path: str,
+    chunk_label: str,
+    prompt: str,
+) -> list[dict]:
     """Upload one video chunk and ask Gemini to find hooks. Returns raw hook list."""
     print(f"    Uploading {chunk_label}...")
     uploaded = client.files.upload(
@@ -112,7 +130,7 @@ def _analyze_chunk(client: genai.Client, chunk_path: str, chunk_label: str) -> l
         try:
             response = client.models.generate_content(
                 model="gemini-2.0-flash",
-                contents=[uploaded, HOOK_PROMPT]
+                contents=[uploaded, prompt]
             )
             hooks = _parse_hooks(response.text)
             print(f"    Found {len(hooks)} hooks in {chunk_label}.")
@@ -178,7 +196,8 @@ def analyze_video(
     video_path: str,
     api_key: str,
     chunks: list[tuple[float, str]],
-    n_clips: int = 5
+    n_clips: int = 5,
+    focus_prompt: str = "",
 ) -> list[dict]:
     """
     Analyze all video chunks with Gemini and return the top N hooks.
@@ -188,11 +207,12 @@ def analyze_video(
     """
     client = genai.Client(api_key=api_key)
     all_hooks = []
+    prompt = build_hook_prompt(focus_prompt)
 
     for i, (offset, chunk_path) in enumerate(chunks):
         label = f"chunk {i+1}/{len(chunks)}"
         try:
-            hooks = _analyze_chunk(client, chunk_path, label)
+            hooks = _analyze_chunk(client, chunk_path, label, prompt)
             hooks = _adjust_timestamps(hooks, offset)
             all_hooks.extend(hooks)
         except Exception as e:

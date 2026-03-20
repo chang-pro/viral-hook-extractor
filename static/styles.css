@@ -78,12 +78,19 @@ label span {
 }
 
 input[type="file"],
-input[type="number"] {
+input[type="number"],
+textarea {
   width: 100%;
   padding: 14px 16px;
   border-radius: 14px;
   border: 1px solid var(--line);
   background: white;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 110px;
+  font: 14px/1.5 Arial, sans-serif;
 }
 
 .check {
@@ -107,6 +114,10 @@ input[type="number"] {
 
 .button:hover {
   filter: brightness(1.05);
+}
+
+.wide {
+  grid-column: 1 / -1;
 }
 
 .error {

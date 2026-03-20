@@ -43,6 +43,7 @@ Set `GEMINI_API_KEY=...` inside `.env`.
 python clipper.py my_video.mp4
 python clipper.py my_video.mp4 --clips 8 --min 15 --max 45 --face-track
 python clipper.py my_video.mp4 --captions-srt full_video.srt --save-thumbnails
+python clipper.py my_video.mp4 --focus-prompt "prioritize arguments, reveals, and funny reactions"
 ```
 
 ## Web UI
@@ -59,8 +60,9 @@ The web UI lets you:
 1. Upload a video.
 2. Upload an optional full-video SRT.
 3. Pick clip count and duration range.
-4. Turn face tracking and thumbnail export on or off.
-5. Download clips, thumbnails, and `hooks.json` after the run finishes.
+4. Add a focus prompt like Opus ClipAnything.
+5. Turn face tracking and thumbnail export on or off.
+6. Download clips, thumbnails, and `hooks.json` after the run finishes.
 
 ## CLI options
 
@@ -72,6 +74,7 @@ The web UI lets you:
 | `--face-track` | off | Use face detection for crop positioning |
 | `--output DIR` | `output` | Output folder |
 | `--captions-srt PATH` | none | Use a source-video SRT for captions |
+| `--focus-prompt TEXT` | none | Extra instructions for hook selection |
 | `--save-thumbnails` | off | Export a JPG thumbnail per selected clip |
 
 ## Output

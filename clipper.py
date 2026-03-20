@@ -11,6 +11,7 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -21,6 +22,9 @@ from reframer import reframe_clip
 from captioner import generate_ass, generate_ass_from_srt, burn_captions
 from thumbnailer import extract_thumbnail
 from utils import ensure_dir, cleanup_files
+
+
+BASE_DIR = Path(__file__).resolve().parent
 
 
 def parse_args():
@@ -40,6 +44,8 @@ def parse_args():
                         help="Output directory (default: ./output)")
     parser.add_argument("--captions-srt", default="",
                         help="Optional source-video SRT file to use for captions instead of Gemini transcript")
+    parser.add_argument("--focus-prompt", default="",
+                        help="Extra instructions for hook selection, similar to Opus ClipAnything")
     parser.add_argument("--save-thumbnails", action="store_true",
                         help="Export thumbnail JPGs at Gemini's suggested timestamps")
     return parser.parse_args()
@@ -69,15 +75,22 @@ def run_pipeline(
     face_track: bool = False,
     output_dir: str = "output",
     captions_srt_path: str = "",
+    focus_prompt: str = "",
     save_thumbnails: bool = False,
 ) -> dict:
     """Run the full clipping pipeline and return output metadata."""
-    load_dotenv()
+    load_dotenv(BASE_DIR / ".env")
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError(
             "GEMINI_API_KEY not found. Create a .env file with GEMINI_API_KEY=your_key_here."
         )
+    if clips < 1:
+        raise ValueError("clips must be at least 1")
+    if min_duration <= 0 or max_duration <= 0:
+        raise ValueError("Clip durations must be positive.")
+    if min_duration > max_duration:
+        raise ValueError("min_duration cannot be greater than max_duration.")
 
     video_path = os.path.abspath(video_path)
     if not os.path.isfile(video_path):
@@ -103,6 +116,8 @@ def run_pipeline(
     print(f"Output:  {output_dir}/")
     if captions_srt_content:
         print(f"Captions: external SRT ({os.path.basename(captions_srt_path)})")
+    if focus_prompt.strip():
+        print(f"Focus:   {focus_prompt.strip()}")
     print()
 
     try:
@@ -118,7 +133,13 @@ def run_pipeline(
 
         # Step 3: Analyze with Gemini
         print(f"\nStep 3/5: Analyzing with Gemini AI (this may take a few minutes)...")
-        hooks = analyze_video(video_path, api_key, chunks, n_clips=clips)
+        hooks = analyze_video(
+            video_path,
+            api_key,
+            chunks,
+            n_clips=clips,
+            focus_prompt=focus_prompt,
+        )
 
         # Validate and clamp durations
         hooks = [validate_hook_duration(h, min_duration, max_duration) for h in hooks]
@@ -237,6 +258,7 @@ def main():
             face_track=args.face_track,
             output_dir=args.output,
             captions_srt_path=args.captions_srt,
+            focus_prompt=args.focus_prompt,
             save_thumbnails=args.save_thumbnails,
         )
     except Exception as e:

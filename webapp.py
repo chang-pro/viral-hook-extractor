@@ -1,10 +1,10 @@
 """Local web UI for Viral Hook Extractor."""
-import os
 import shutil
 import uuid
 from pathlib import Path
 
 from flask import Flask, abort, render_template, request, send_from_directory, url_for
+from werkzeug.utils import secure_filename
 
 from clipper import run_pipeline
 from utils import ensure_dir
@@ -45,28 +45,43 @@ def run_job():
     ensure_dir(str(run_dir))
     ensure_dir(str(upload_dir))
 
-    video_path = upload_dir / video.filename
+    video_name = secure_filename(video.filename)
+    if not video_name:
+        return render_template("index.html", error="Video filename is invalid."), 400
+    video_path = upload_dir / video_name
     video.save(video_path)
 
     captions_path = ""
     if captions and captions.filename:
-        saved_srt = upload_dir / captions.filename
+        srt_name = secure_filename(captions.filename)
+        if not srt_name:
+            return render_template("index.html", error="SRT filename is invalid."), 400
+        saved_srt = upload_dir / srt_name
         captions.save(saved_srt)
         captions_path = str(saved_srt)
 
     try:
+        clips = int(request.form.get("clips", 5))
+        min_duration = float(request.form.get("min_duration", 20))
+        max_duration = float(request.form.get("max_duration", 60))
         result = run_pipeline(
             video_path=str(video_path),
-            clips=int(request.form.get("clips", 5)),
-            min_duration=float(request.form.get("min_duration", 20)),
-            max_duration=float(request.form.get("max_duration", 60)),
+            clips=clips,
+            min_duration=min_duration,
+            max_duration=max_duration,
             face_track=bool(request.form.get("face_track")),
             output_dir=str(run_dir),
             captions_srt_path=captions_path,
+            focus_prompt=request.form.get("focus_prompt", "").strip(),
             save_thumbnails=bool(request.form.get("save_thumbnails")),
         )
+    except ValueError as exc:
+        shutil.rmtree(run_dir, ignore_errors=True)
+        shutil.rmtree(upload_dir, ignore_errors=True)
+        return render_template("index.html", error=str(exc)), 400
     except Exception as exc:
         shutil.rmtree(run_dir, ignore_errors=True)
+        shutil.rmtree(upload_dir, ignore_errors=True)
         return render_template("index.html", error=str(exc)), 500
 
     clips = [Path(path).name for path in result["clips"]]
@@ -88,11 +103,13 @@ def run_job():
 
 @app.get("/files/<run_id>/<path:filename>")
 def serve_run_file(run_id: str, filename: str):
-    base_dir = RUNS_DIR / run_id
-    target = base_dir / filename
-    if not target.exists():
+    base_dir = (RUNS_DIR / run_id).resolve()
+    target = (base_dir / filename).resolve()
+    if base_dir not in target.parents and target != base_dir:
         abort(404)
-    return send_from_directory(base_dir, filename, as_attachment=False)
+    if not target.exists() or not target.is_file():
+        abort(404)
+    return send_from_directory(target.parent, target.name, as_attachment=False)
 
 
 @app.get("/health")
