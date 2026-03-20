@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Viral Hook Extractor</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">Local AI clipping workflow</p>
+      <h1>Viral Hook Extractor</h1>
+      <p class="lede">Upload a long video, let Gemini find the hooks, and export vertical clips with captions and thumbnails.</p>
+    </section>
+
+    <section class="card">
+      {% if error %}
+      <div class="error">{{ error }}</div>
+      {% endif %}
+
+      <form action="{{ url_for('run_job') }}" method="post" enctype="multipart/form-data" class="form-grid">
+        <label>
+          <span>Video file</span>
+          <input type="file" name="video" accept=".mp4,.mov,.mkv" required>
+        </label>
+
+        <label>
+          <span>Optional SRT</span>
+          <input type="file" name="captions_srt" accept=".srt">
+        </label>
+
+        <label>
+          <span>Number of clips</span>
+          <input type="number" name="clips" min="1" max="20" value="5">
+        </label>
+
+        <label>
+          <span>Min seconds</span>
+          <input type="number" name="min_duration" min="5" max="300" step="1" value="20">
+        </label>
+
+        <label>
+          <span>Max seconds</span>
+          <input type="number" name="max_duration" min="5" max="300" step="1" value="60">
+        </label>
+
+        <label class="check">
+          <input type="checkbox" name="face_track">
+          <span>Face-track crop</span>
+        </label>
+
+        <label class="check">
+          <input type="checkbox" name="save_thumbnails" checked>
+          <span>Save thumbnails</span>
+        </label>
+
+        <button type="submit" class="button">Run Extractor</button>
+      </form>
+    </section>
+
+    <section class="note">
+      <p>Runs locally on your machine. You still need `ffmpeg`, Python deps, and `GEMINI_API_KEY` in `.env`.</p>
+    </section>
+  </main>
+</body>
+</html>

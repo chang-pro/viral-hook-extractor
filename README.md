@@ -45,6 +45,23 @@ python clipper.py my_video.mp4 --clips 8 --min 15 --max 45 --face-track
 python clipper.py my_video.mp4 --captions-srt full_video.srt --save-thumbnails
 ```
 
+## Web UI
+
+```powershell
+pip install -r requirements.txt
+python webapp.py
+```
+
+Then open `http://127.0.0.1:5000` in your browser.
+
+The web UI lets you:
+
+1. Upload a video.
+2. Upload an optional full-video SRT.
+3. Pick clip count and duration range.
+4. Turn face tracking and thumbnail export on or off.
+5. Download clips, thumbnails, and `hooks.json` after the run finishes.
+
 ## CLI options
 
 | Flag | Default | Description |

@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Run Complete</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <section class="hero">
+      <p class="eyebrow">Run complete</p>
+      <h1>Your clips are ready</h1>
+      <p class="lede"><a href="{{ url_for('index') }}">Run another video</a></p>
+    </section>
+
+    <section class="card">
+      <h2>Outputs</h2>
+      <p><a href="{{ url_for('serve_run_file', run_id=run_id, filename=hooks_path) }}">Download hooks.json</a></p>
+
+      <div class="list">
+        {% for clip in clips %}
+        <a class="list-item" href="{{ url_for('serve_run_file', run_id=run_id, filename=clip) }}">{{ clip }}</a>
+        {% endfor %}
+      </div>
+    </section>
+
+    {% if thumbnails %}
+    <section class="card">
+      <h2>Thumbnails</h2>
+      <div class="thumb-grid">
+        {% for thumb in thumbnails %}
+        <figure class="thumb-card">
+          <img src="{{ url_for('serve_run_file', run_id=run_id, filename='thumbnails/' + thumb) }}" alt="{{ thumb }}">
+          <figcaption><a href="{{ url_for('serve_run_file', run_id=run_id, filename='thumbnails/' + thumb) }}">{{ thumb }}</a></figcaption>
+        </figure>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    <section class="card">
+      <h2>Ranked hooks</h2>
+      <div class="hook-grid">
+        {% for hook in hooks %}
+        <article class="hook-card">
+          <div class="meta">Virality {{ hook.virality_score }} | {{ hook.type }}</div>
+          <h3>{{ hook.hook_line or "No hook line" }}</h3>
+          <p>{{ "%.1f"|format(hook.start) }}s to {{ "%.1f"|format(hook.end) }}s</p>
+          <p>{{ hook.reason }}</p>
+          <p class="scoreline">H {{ hook.hook_score }} | F {{ hook.flow_score }} | V {{ hook.value_score }} | T {{ hook.trend_score }}</p>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+</body>
+</html>

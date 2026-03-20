@@ -61,44 +61,48 @@ def validate_hook_duration(hook: dict, min_dur: float, max_dur: float) -> dict:
     return {**hook, "end": round(end, 2)}
 
 
-def main():
-    args = parse_args()
-
-    # Load API key
+def run_pipeline(
+    video_path: str,
+    clips: int = 5,
+    min_duration: float = 20.0,
+    max_duration: float = 60.0,
+    face_track: bool = False,
+    output_dir: str = "output",
+    captions_srt_path: str = "",
+    save_thumbnails: bool = False,
+) -> dict:
+    """Run the full clipping pipeline and return output metadata."""
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        print("ERROR: GEMINI_API_KEY not found.")
-        print("Create a .env file with: GEMINI_API_KEY=your_key_here")
-        print("Get a free key at: https://ai.google.dev")
-        sys.exit(1)
+        raise RuntimeError(
+            "GEMINI_API_KEY not found. Create a .env file with GEMINI_API_KEY=your_key_here."
+        )
 
-    video_path = os.path.abspath(args.video)
+    video_path = os.path.abspath(video_path)
     if not os.path.isfile(video_path):
-        print(f"ERROR: Video file not found: {video_path}")
-        sys.exit(1)
+        raise FileNotFoundError(f"Video file not found: {video_path}")
 
-    output_dir = ensure_dir(args.output)
-    thumbnails_dir = ensure_dir(os.path.join(output_dir, "thumbnails")) if args.save_thumbnails else ""
+    output_dir = ensure_dir(output_dir)
+    thumbnails_dir = ensure_dir(os.path.join(output_dir, "thumbnails")) if save_thumbnails else ""
     temp_dir = tempfile.mkdtemp(prefix="clipper_")
     temp_files_to_clean = [temp_dir]
     captions_srt_content = ""
 
-    if args.captions_srt:
-        srt_path = os.path.abspath(args.captions_srt)
+    if captions_srt_path:
+        srt_path = os.path.abspath(captions_srt_path)
         if not os.path.isfile(srt_path):
-            print(f"ERROR: SRT file not found: {srt_path}")
-            sys.exit(1)
+            raise FileNotFoundError(f"SRT file not found: {srt_path}")
         with open(srt_path, "r", encoding="utf-8-sig") as handle:
             captions_srt_content = handle.read()
 
     print(f"\nJamaican Video Clip Extractor")
     print(f"{'='*40}")
     print(f"Input:   {os.path.basename(video_path)}")
-    print(f"Clips:   {args.clips}")
+    print(f"Clips:   {clips}")
     print(f"Output:  {output_dir}/")
     if captions_srt_content:
-        print(f"Captions: external SRT ({os.path.basename(args.captions_srt)})")
+        print(f"Captions: external SRT ({os.path.basename(captions_srt_path)})")
     print()
 
     try:
@@ -114,10 +118,10 @@ def main():
 
         # Step 3: Analyze with Gemini
         print(f"\nStep 3/5: Analyzing with Gemini AI (this may take a few minutes)...")
-        hooks = analyze_video(video_path, api_key, chunks, n_clips=args.clips)
+        hooks = analyze_video(video_path, api_key, chunks, n_clips=clips)
 
         # Validate and clamp durations
-        hooks = [validate_hook_duration(h, args.min_duration, args.max_duration) for h in hooks]
+        hooks = [validate_hook_duration(h, min_duration, max_duration) for h in hooks]
 
         # Save hooks.json
         hooks_path = os.path.join(output_dir, "hooks.json")
@@ -152,7 +156,7 @@ def main():
 
             # Reframe to 9:16
             reframed_path = os.path.join(temp_dir, f"reframed_{i:02d}.mp4")
-            reframe_clip(raw_path, reframed_path, face_track=args.face_track)
+            reframe_clip(raw_path, reframed_path, face_track=face_track)
 
             # Generate karaoke captions (.ass format)
             clip_start_abs = max(0.0, hook["start"] - 1.5)  # account for pad_start
@@ -175,7 +179,7 @@ def main():
             final_name = f"clip_{i+1:02d}_virality{vscore}_{htype}.mp4"
             final_path = os.path.join(output_dir, final_name)
             burn_captions(reframed_path, ass, final_path)
-            if args.save_thumbnails:
+            if save_thumbnails:
                 thumb_name = f"clip_{i+1:02d}_thumb.jpg"
                 thumb_path = os.path.join(thumbnails_dir, thumb_name)
                 extract_thumbnail(
@@ -206,16 +210,38 @@ def main():
             if reason:
                 print(f"      reason:    {reason}")
         print()
+        return {
+            "output_dir": os.path.abspath(output_dir),
+            "hooks_path": os.path.abspath(hooks_path),
+            "clips": final_clips,
+            "hooks": hooks,
+            "thumbnails_dir": os.path.abspath(thumbnails_dir) if save_thumbnails else "",
+        }
 
     except KeyboardInterrupt:
         print("\nCancelled by user.")
-        sys.exit(1)
-    except Exception as e:
-        print(f"\nERROR: {e}")
-        sys.exit(1)
+        raise RuntimeError("Cancelled by user.")
     finally:
         print("Cleaning up temp files...")
         cleanup_files(temp_files_to_clean)
+
+
+def main():
+    args = parse_args()
+    try:
+        run_pipeline(
+            video_path=args.video,
+            clips=args.clips,
+            min_duration=args.min_duration,
+            max_duration=args.max_duration,
+            face_track=args.face_track,
+            output_dir=args.output,
+            captions_srt_path=args.captions_srt,
+            save_thumbnails=args.save_thumbnails,
+        )
+    except Exception as e:
+        print(f"\nERROR: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
