@@ -75,6 +75,30 @@ def validate_hook_duration(hook: dict, min_dur: float, max_dur: float) -> dict:
     return {**hook, "end": round(end, 2)}
 
 
+def anchor_hook_to_opening(
+    hook: dict,
+    target_hook_delay: float = 1.5,
+    max_hook_delay: float = 3.0,
+) -> dict:
+    """Shift clip start closer to the hook so the opening lands faster."""
+    hook_time = hook.get("hook_time")
+    start = hook.get("start", 0.0)
+    end = hook.get("end", start + 30.0)
+
+    if not isinstance(hook_time, (int, float)):
+        return hook
+
+    duration = max(1.0, end - start)
+    latest_start = max(0.0, float(hook_time) - max_hook_delay)
+    ideal_start = max(0.0, float(hook_time) - target_hook_delay)
+
+    if start < latest_start or start > hook_time:
+        start = ideal_start
+        end = start + duration
+
+    return {**hook, "start": round(start, 2), "end": round(end, 2)}
+
+
 def resolve_duration_settings(length_preset: str, min_duration: float, max_duration: float) -> tuple[str, float, float]:
     """Resolve UI/CLI duration preset into concrete min/max values."""
     preset = (length_preset or "short").strip().lower()
@@ -168,7 +192,14 @@ def run_pipeline(
         )
 
         # Validate and clamp durations
-        hooks = [validate_hook_duration(h, min_duration, max_duration) for h in hooks]
+        hooks = [
+            validate_hook_duration(
+                anchor_hook_to_opening(h),
+                min_duration,
+                max_duration,
+            )
+            for h in hooks
+        ]
 
         # Save hooks.json
         hooks_path = os.path.join(output_dir, "hooks.json")

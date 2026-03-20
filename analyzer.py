@@ -9,6 +9,11 @@ HOOK_PROMPT = """You are an expert short-form video editor analyzing a Jamaican 
 
 Your job: find the moments that would make someone STOP scrolling and watch the full clip.
 
+AUTO-HOOK REQUIREMENT:
+- The clip must open on the hook, or very close to it.
+- The strongest line, reveal, reaction, or conflict beat should happen within the first 1 to 3 seconds of the clip.
+- If a little setup is needed, include only the minimum lead-in required to make the hook understandable.
+
 IMPORTANT: This is Jamaican content. Speakers use Jamaican patois, creole, or mixed English/patois. Transcribe exactly what is said including patois words and phrases — do not translate or substitute standard English.
 
 For each hook candidate, score it on FOUR dimensions (each 0-25 points):
@@ -41,6 +46,7 @@ Return ONLY a raw JSON array — no markdown, no explanation.
   {
     "start": 12.4,
     "end": 38.1,
+    "hook_time": 14.0,
     "type": "funny",
     "hook_score": 22,
     "flow_score": 20,
@@ -58,6 +64,7 @@ Rules:
 - Return 3 to 8 hooks sorted by virality_score descending
 - Timestamps are seconds from the START of this video segment
 - type must be one of: "funny", "dramatic", "opening"
+- hook_time is the exact second where the main hook lands inside the clip
 - Each clip should be 15-60 seconds long
 - transcript is an array of [word, timestamp_seconds] pairs — include every word spoken in the clip
 - thumbnail_time is the single best frame for a thumbnail (peak expression, peak action)
@@ -151,6 +158,8 @@ def _adjust_timestamps(hooks: list[dict], offset: float) -> list[dict]:
         h = dict(h)
         h["start"] = round(h.get("start", 0) + offset, 2)
         h["end"] = round(h.get("end", 0) + offset, 2)
+        if isinstance(h.get("hook_time"), (int, float)):
+            h["hook_time"] = round(h["hook_time"] + offset, 2)
         h["thumbnail_time"] = round(h.get("thumbnail_time", h["start"]) + offset, 2)
         # Adjust transcript timestamps
         transcript = h.get("transcript", [])
