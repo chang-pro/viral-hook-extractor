@@ -24,6 +24,8 @@ web_uploads/
 *.srt
 *.ass
 *.jpg
+*.log
+frame*.png
 
 # OS
 .DS_Store

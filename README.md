@@ -37,6 +37,18 @@ gemini
 ```
 When Gemini CLI opens, choose **Sign in with Google**. If you have Google AI Pro or Google AI Ultra, sign in with that same Google account.
 
+### Optional ASR stack
+
+If you want stronger local subtitles and diarization, install the optional ASR stack in a repo-local venv:
+
+```powershell
+cd C:\Users\User\code\viral-hook-extractor
+python -m venv .venv
+.venv\Scripts\python -m pip install --upgrade pip setuptools wheel
+.venv\Scripts\python -m pip install torch==2.8.0+cu128 torchaudio==2.8.0+cu128 torchvision==0.23.0+cu128 --index-url https://download.pytorch.org/whl/cu128
+.venv\Scripts\python -m pip install -r requirements-asr.txt
+```
+
 ## Usage
 
 ```powershell
