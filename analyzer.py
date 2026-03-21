@@ -7,6 +7,8 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from utils import ensure_dir, run_ffmpeg, run_ffprobe
+
 
 TYPE_MAP = {
     "humor": "funny",
@@ -102,7 +104,7 @@ def build_hook_prompt(
         "thumbnail_time should be the best visual frame for the clip. "
         "Do not include a full transcript in this candidate pass."
     ).format(
-        count=max(3, min(clip_count_hint, 6)),
+        count=max(1, min(clip_count_hint, 6)),
         profile_prompt=profile["prompt"],
     )
     if focus_prompt:
@@ -260,6 +262,130 @@ def _stage_chunk_for_cli(chunk_path: str) -> tuple[str, str]:
     return work_dir, staged_path
 
 
+def _get_video_duration(video_path: str) -> float:
+    """Return the duration of a video in seconds."""
+    output = run_ffprobe(
+        [
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            video_path,
+        ]
+    )
+    return float(output)
+
+
+def _resolve_window_duration(max_duration: float) -> float:
+    """Choose an analysis window size that is larger than the target clip length."""
+    if max_duration <= 60:
+        return min(90.0, max(45.0, max_duration + 15.0))
+    if max_duration <= 180:
+        return min(210.0, max(90.0, max_duration + 30.0))
+    return min(360.0, max(180.0, max_duration + 45.0))
+
+
+def _plan_analysis_windows(
+    chunk_duration: float,
+    min_duration: float,
+    max_duration: float,
+) -> list[tuple[float, float]]:
+    """Return [(start, duration)] windows for the candidate search pass."""
+    window_duration = _resolve_window_duration(max_duration)
+    if chunk_duration <= window_duration:
+        return [(0.0, chunk_duration)]
+
+    overlap = max(12.0, min(window_duration * 0.2, max_duration * 0.35, 45.0))
+    step = max(10.0, window_duration - overlap)
+    windows = []
+    start = 0.0
+
+    while start < chunk_duration:
+        remaining = chunk_duration - start
+        duration = min(window_duration, remaining)
+        if remaining <= window_duration * 1.15:
+            start = max(0.0, chunk_duration - window_duration)
+            duration = chunk_duration - start
+            windows.append((round(start, 2), round(duration, 2)))
+            break
+        windows.append((round(start, 2), round(duration, 2)))
+        start += step
+
+    deduped = []
+    seen = set()
+    for window in windows:
+        key = (window[0], window[1])
+        if key not in seen:
+            deduped.append(window)
+            seen.add(key)
+    return deduped
+
+
+def _extract_window(source_path: str, start: float, duration: float, output_path: str) -> str:
+    """Create an analysis window video for Gemini CLI."""
+    ensure_dir(os.path.dirname(output_path) or ".")
+    run_ffmpeg(
+        [
+            "-ss",
+            f"{start:.3f}",
+            "-i",
+            source_path,
+            "-t",
+            f"{duration:.3f}",
+            "-c",
+            "copy",
+            output_path,
+        ],
+        f"analysis window {os.path.basename(output_path)}",
+    )
+    return output_path
+
+
+def _build_analysis_units(
+    chunk_path: str,
+    min_duration: float,
+    max_duration: float,
+    window_dir: str,
+) -> list[tuple[float, str]]:
+    """Return [(offset_within_chunk, path)] analysis units for Gemini CLI."""
+    chunk_duration = _get_video_duration(chunk_path)
+    windows = _plan_analysis_windows(chunk_duration, min_duration, max_duration)
+    if len(windows) == 1 and windows[0][0] == 0.0 and abs(windows[0][1] - chunk_duration) < 0.5:
+        return [(0.0, chunk_path)]
+
+    ensure_dir(window_dir)
+    units = []
+    for index, (start, duration) in enumerate(windows, start=1):
+        window_path = os.path.join(window_dir, f"window_{index:03d}.mp4")
+        _extract_window(chunk_path, start, duration, window_path)
+        units.append((start, window_path))
+    return units
+
+
+def _split_failed_unit(unit_path: str, output_dir: str) -> list[tuple[float, str]]:
+    """Split a slow analysis unit into two smaller overlapping subwindows."""
+    duration = _get_video_duration(unit_path)
+    if duration <= 55.0:
+        return [(0.0, unit_path)]
+
+    ensure_dir(output_dir)
+    midpoint = duration / 2.0
+    overlap = min(12.0, duration * 0.18)
+    windows = [
+        (0.0, min(duration, midpoint + overlap)),
+        (max(0.0, midpoint - overlap), duration - max(0.0, midpoint - overlap)),
+    ]
+
+    units = []
+    for index, (start, window_duration) in enumerate(windows, start=1):
+        subwindow_path = os.path.join(output_dir, f"split_{index:02d}.mp4")
+        _extract_window(unit_path, start, window_duration, subwindow_path)
+        units.append((round(start, 2), subwindow_path))
+    return units
+
+
 def _run_cli_for_chunk(
     chunk_path: str,
     focus_prompt: str,
@@ -307,6 +433,57 @@ def _run_cli_for_chunk(
     raise RuntimeError(f"Gemini CLI returned invalid hook JSON. {last_error}")
 
 
+def _analyze_unit_with_fallback(
+    unit_path: str,
+    absolute_offset: float,
+    focus_prompt: str,
+    hook_profile: str,
+    candidate_count: int,
+    split_dir: str,
+    split_depth: int = 0,
+) -> list[dict]:
+    """Analyze one unit and split it into smaller windows if Gemini CLI times out."""
+    try:
+        hooks = _run_cli_for_chunk(
+            unit_path,
+            focus_prompt,
+            candidate_count,
+            hook_profile,
+        )
+        return _adjust_timestamps(hooks, absolute_offset)
+    except Exception as exc:
+        error_text = str(exc).lower()
+        if split_depth >= 1 or "timed out" not in error_text:
+            raise
+
+        split_units = _split_failed_unit(unit_path, split_dir)
+        if len(split_units) == 1 and split_units[0][1] == unit_path:
+            raise
+
+        recovered_hooks = []
+        split_errors = []
+        for local_offset, split_path in split_units:
+            try:
+                recovered_hooks.extend(
+                    _analyze_unit_with_fallback(
+                        split_path,
+                        absolute_offset + local_offset,
+                        focus_prompt,
+                        hook_profile,
+                        1,
+                        os.path.join(split_dir, f"nested_{int(local_offset * 100):06d}"),
+                        split_depth=split_depth + 1,
+                    )
+                )
+            except Exception as split_exc:
+                split_errors.append(str(split_exc))
+
+        if recovered_hooks:
+            return recovered_hooks
+
+        raise RuntimeError(f"{exc} | fallback split failed: {' | '.join(split_errors)}")
+
+
 def transcribe_clip(clip_path: str) -> list[list]:
     """Transcribe one selected clip with word timings using Gemini CLI."""
     cli_path = _find_gemini_cli()
@@ -335,7 +512,8 @@ def transcribe_clip(clip_path: str) -> list[list]:
         response_text = re.sub(r"^```(?:json)?\s*", "", response_text.strip())
         response_text = re.sub(r"\s*```$", "", response_text)
         transcript_payload = json.loads(response_text)
-        return _transcript_to_pairs(transcript_payload.get("transcript_words"), 0.0, 30.0)
+        clip_duration = _get_video_duration(clip_path)
+        return _transcript_to_pairs(transcript_payload.get("transcript_words"), 0.0, clip_duration)
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)
 
@@ -404,27 +582,59 @@ def analyze_video(
     n_clips: int = 5,
     focus_prompt: str = "",
     hook_profile: str = "hot",
+    min_duration: float = 30.0,
+    max_duration: float = 60.0,
 ) -> list[dict]:
     """Analyze all chunks with Gemini CLI and return the top hooks."""
     all_hooks = []
     errors = []
+    analysis_temp_root = tempfile.mkdtemp(prefix="analysis_windows_")
 
-    for index, (offset, chunk_path) in enumerate(chunks, start=1):
-        label = f"chunk {index}/{len(chunks)}"
-        try:
-            print(f"    Analyzing {label} with Gemini CLI ({hook_profile})...")
-            hooks = _run_cli_for_chunk(
-                chunk_path,
-                focus_prompt,
-                max(n_clips + 2, 3),
-                hook_profile,
-            )
-            hooks = _adjust_timestamps(hooks, offset)
-            all_hooks.extend(hooks)
-            print(f"    Found {len(hooks)} hooks in {label}.")
-        except Exception as exc:
-            errors.append((label, str(exc)))
-            print(f"  WARNING: Failed to analyze {label}: {exc}")
+    try:
+        for index, (offset, chunk_path) in enumerate(chunks, start=1):
+            label = f"chunk {index}/{len(chunks)}"
+            try:
+                analysis_units = _build_analysis_units(
+                    chunk_path,
+                    min_duration,
+                    max_duration,
+                    os.path.join(analysis_temp_root, f"chunk_{index:03d}"),
+                )
+                print(
+                    f"    Analyzing {label} with Gemini CLI ({hook_profile}) "
+                    f"across {len(analysis_units)} window(s)..."
+                )
+
+                unit_candidates = max(1, min(n_clips, 2)) if len(analysis_units) == 1 else 1
+                chunk_hooks = []
+                for unit_index, (window_offset, unit_path) in enumerate(analysis_units, start=1):
+                    window_label = f"{label} window {unit_index}/{len(analysis_units)}"
+                    try:
+                        hooks = _analyze_unit_with_fallback(
+                            unit_path,
+                            offset + window_offset,
+                            focus_prompt,
+                            hook_profile,
+                            unit_candidates,
+                            os.path.join(
+                                analysis_temp_root,
+                                f"chunk_{index:03d}",
+                                f"fallback_{unit_index:03d}",
+                            ),
+                        )
+                        chunk_hooks.extend(hooks)
+                        print(f"      {window_label}: {len(hooks)} candidate(s)")
+                    except Exception as window_exc:
+                        errors.append((window_label, str(window_exc)))
+                        print(f"      WARNING: {window_label} failed: {window_exc}")
+
+                all_hooks.extend(chunk_hooks)
+                print(f"    Found {len(chunk_hooks)} hooks in {label}.")
+            except Exception as exc:
+                errors.append((label, str(exc)))
+                print(f"  WARNING: Failed to analyze {label}: {exc}")
+    finally:
+        shutil.rmtree(analysis_temp_root, ignore_errors=True)
 
     if not all_hooks:
         if errors:

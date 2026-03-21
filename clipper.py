@@ -190,6 +190,8 @@ def run_pipeline(
             n_clips=clips,
             focus_prompt=focus_prompt,
             hook_profile=hook_profile,
+            min_duration=min_duration,
+            max_duration=max_duration,
         )
 
         # Validate and clamp durations
