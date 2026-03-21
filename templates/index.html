@@ -76,8 +76,31 @@
           <small>Only used when you choose <strong>Custom range</strong>.</small>
         </div>
 
+        <div class="wide">
+          <span class="field-title">4. Pick the hook engine</span>
+          <div class="preset-grid">
+            <label class="preset-card">
+              <input type="radio" name="hook_profile" value="hot" checked>
+              <strong>Hot hook</strong>
+              <small>Best for arguments, disrespect, reveals, funny reactions, and high-intensity moments.</small>
+            </label>
+
+            <label class="preset-card">
+              <input type="radio" name="hook_profile" value="balanced">
+              <strong>Balanced</strong>
+              <small>General virality. Less explosive, more broadly shareable.</small>
+            </label>
+
+            <label class="preset-card">
+              <input type="radio" name="hook_profile" value="story">
+              <strong>Story arc</strong>
+              <small>Allows more setup when the payoff is worth it.</small>
+            </label>
+          </div>
+        </div>
+
         <label class="wide">
-          <span>4. Tell it what kind of hooks to favor</span>
+          <span>5. Tell it what kind of hooks to favor</span>
           <textarea name="focus_prompt" rows="4" placeholder="Example: prioritize arguments, reveals, funny reactions, catchphrases, and the cleanest opening line."></textarea>
           <small>This is like telling the AI what to hunt for. Leave it blank if you want general auto-hook behavior.</small>
         </label>
@@ -103,6 +126,12 @@
               <span>Save thumbnail images too</span>
             </label>
             <p class="help">This exports still images from the best frame of each chosen clip.</p>
+
+            <label class="check">
+              <input type="checkbox" name="analyze_only">
+              <span>Score hooks first, do not cut clips yet</span>
+            </label>
+            <p class="help">Use this if you want to see the grades, hook points, and reasons first like an Opus-style scoring screen.</p>
           </div>
         </details>
 
@@ -116,7 +145,7 @@
       <p><strong>Number of clips:</strong> how many final clips you want back from one long video.</p>
       <p><strong>Minimum / maximum seconds:</strong> how short or long each final clip is allowed to be.</p>
       <p><strong>Face track:</strong> tries to keep the person centered when turning a wide video into vertical 9:16.</p>
-      <p><strong>Focus prompt:</strong> extra directions like “find arguments, surprises, and funny reactions.”</p>
+      <p><strong>Focus prompt:</strong> extra directions like "find arguments, surprises, and funny reactions."</p>
     </section>
   </main>
 

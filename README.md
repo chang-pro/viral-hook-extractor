@@ -2,18 +2,19 @@
 
 Open source AI video clipper for finding high-retention hooks in long videos.
 
-This project is aimed at Jamaican drama, lifestyle, and patois-heavy content where transcription-first clipping tools often miss the real moment. It uses Gemini video understanding to rank hooks, then cuts, reframes, captions, and optionally exports thumbnails.
+This project is aimed at Jamaican drama, lifestyle, and patois-heavy content where transcription-first clipping tools often miss the real moment. It uses Gemini CLI with your signed-in Google account to rank hooks, then cuts, reframes, captions, and optionally exports thumbnails.
 
 ## Current features
 
-1. Analyze local MP4 files with Gemini.
-2. Score hooks across `hook`, `flow`, `value`, and `trend`.
+1. Analyze local MP4 files with Gemini CLI.
+2. Score hooks across `hook`, `flow`, `value`, `trend`, plus hot-hook metrics like `conflict`, `surprise`, `reaction`, and `payoff`.
 3. Cut top clips with FFmpeg.
 4. Reframe to vertical 9:16.
 5. Burn in ASS captions.
-6. Use Gemini word timings or an external source-video SRT.
-7. Export JPG thumbnails from the best frame per hook.
-8. Save full metadata to `hooks.json`.
+6. Use a two-pass flow: pick candidates first, then transcribe only the winning clip(s) for subtitles.
+7. Use Gemini word timings or an external source-video SRT.
+8. Export JPG thumbnails from the best frame per hook.
+9. Save full metadata to `hooks.json`.
 
 ## Why this exists
 
@@ -25,25 +26,25 @@ Opus Clip is strong on automated clipping, but the weak point for this use case 
 
 1. Python 3.10+
 2. FFmpeg on PATH
-3. Gemini API key from `https://ai.google.dev`
+3. Gemini CLI installed and signed in with Google
 
 ### Install
 
 ```powershell
 cd C:\Users\User\code\viral-hook-extractor
 pip install -r requirements.txt
-copy .env.example .env
+gemini
 ```
-
-Set `GEMINI_API_KEY=...` inside `.env`.
+When Gemini CLI opens, choose **Sign in with Google**. If you have Google AI Pro or Google AI Ultra, sign in with that same Google account.
 
 ## Usage
 
 ```powershell
 python clipper.py my_video.mp4
-python clipper.py my_video.mp4 --clips 8 --min 15 --max 45 --face-track
+python clipper.py my_video.mp4 --clips 8 --length-preset medium --face-track
 python clipper.py my_video.mp4 --captions-srt full_video.srt --save-thumbnails
 python clipper.py my_video.mp4 --focus-prompt "prioritize arguments, reveals, and funny reactions"
+python clipper.py my_video.mp4 --hook-profile hot
 ```
 
 ## Web UI
@@ -69,12 +70,14 @@ The web UI lets you:
 | Flag | Default | Description |
 |---|---|---|
 | `--clips N` | `5` | Number of clips to export |
+| `--length-preset` | `short` | `short=30-60s`, `medium=1-3m`, `long=3-5m`, `custom=use min/max` |
 | `--min SECS` | `20` | Minimum clip length |
 | `--max SECS` | `60` | Maximum clip length |
 | `--face-track` | off | Use face detection for crop positioning |
 | `--output DIR` | `output` | Output folder |
 | `--captions-srt PATH` | none | Use a source-video SRT for captions |
 | `--focus-prompt TEXT` | none | Extra instructions for hook selection |
+| `--hook-profile` | `hot` | `hot=maximum drama/reaction`, `balanced=general viral`, `story=cleaner arc` |
 | `--save-thumbnails` | off | Export a JPG thumbnail per selected clip |
 
 ## Output
@@ -100,7 +103,13 @@ Each hook in `hooks.json` includes:
   "flow_score": 21,
   "value_score": 20,
   "trend_score": 19,
+  "conflict_score": 24,
+  "surprise_score": 22,
+  "reaction_score": 23,
+  "payoff_score": 21,
+  "context_penalty": 4,
   "virality_score": 82,
+  "selection_score": 88,
   "reason": "The confrontation escalates immediately and resolves cleanly.",
   "hook_line": "HIM NEVER EXPECT THIS",
   "thumbnail_time": 155.4,
@@ -110,7 +119,7 @@ Each hook in `hooks.json` includes:
 
 ## How captions work
 
-Default mode uses Gemini's returned word timings to build ASS karaoke captions.
+Default mode uses Gemini CLI in a second pass on the selected clip to build ASS karaoke captions.
 
 If you already have a better transcript, pass `--captions-srt full_video.srt`. The tool will slice that full-video subtitle file to match each exported clip, which is the better path when Jamaican speech recognition quality matters more than convenience.
 

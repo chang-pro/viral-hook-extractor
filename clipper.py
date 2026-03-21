@@ -13,10 +13,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 from chunker import chunk_video, get_duration
-from analyzer import analyze_video
+from analyzer import analyze_video, transcribe_clip
 from cutter import cut_clip
 from reframer import reframe_clip
 from captioner import generate_ass, generate_ass_from_srt, burn_captions
@@ -31,6 +29,7 @@ DURATION_PRESETS = {
     "long": (180.0, 300.0),
     "custom": None,
 }
+HOOK_PROFILE_CHOICES = ("hot", "balanced", "story")
 
 
 def parse_args():
@@ -54,6 +53,10 @@ def parse_args():
                         help="Optional source-video SRT file to use for captions instead of Gemini transcript")
     parser.add_argument("--focus-prompt", default="",
                         help="Extra instructions for hook selection, similar to Opus ClipAnything")
+    parser.add_argument("--hook-profile", default="hot", choices=HOOK_PROFILE_CHOICES,
+                        help="Hook ranking profile: hot=maximum drama/reaction, balanced=general viral, story=cleaner arcs")
+    parser.add_argument("--analyze-only", action="store_true",
+                        help="Only score and rank hook candidates without exporting clips")
     parser.add_argument("--save-thumbnails", action="store_true",
                         help="Export thumbnail JPGs at Gemini's suggested timestamps")
     return parser.parse_args()
@@ -120,15 +123,11 @@ def run_pipeline(
     output_dir: str = "output",
     captions_srt_path: str = "",
     focus_prompt: str = "",
+    hook_profile: str = "hot",
+    analyze_only: bool = False,
     save_thumbnails: bool = False,
 ) -> dict:
     """Run the full clipping pipeline and return output metadata."""
-    load_dotenv(BASE_DIR / ".env")
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError(
-            "GEMINI_API_KEY not found. Create a .env file with GEMINI_API_KEY=your_key_here."
-        )
     if clips < 1:
         raise ValueError("clips must be at least 1")
     length_preset, min_duration, max_duration = resolve_duration_settings(
@@ -166,6 +165,7 @@ def run_pipeline(
     print(f"Output:  {output_dir}/")
     if captions_srt_content:
         print(f"Captions: external SRT ({os.path.basename(captions_srt_path)})")
+    print(f"Profile: {hook_profile}")
     if focus_prompt.strip():
         print(f"Focus:   {focus_prompt.strip()}")
     print()
@@ -185,10 +185,11 @@ def run_pipeline(
         print(f"\nStep 3/5: Analyzing with Gemini AI (this may take a few minutes)...")
         hooks = analyze_video(
             video_path,
-            api_key,
+            "",
             chunks,
             n_clips=clips,
             focus_prompt=focus_prompt,
+            hook_profile=hook_profile,
         )
 
         # Validate and clamp durations
@@ -207,6 +208,17 @@ def run_pipeline(
             json.dump(hooks, f, indent=2, ensure_ascii=False)
         print(f"  Saved hook data -> {hooks_path}")
 
+        if analyze_only:
+            print("\nAnalysis only mode: skipping clip cutting and export.")
+            return {
+                "output_dir": os.path.abspath(output_dir),
+                "hooks_path": os.path.abspath(hooks_path),
+                "clips": [],
+                "hooks": hooks,
+                "thumbnails_dir": "",
+                "analyze_only": True,
+            }
+
         # Steps 4 & 5: Cut, reframe, caption
         print(f"\nStep 4/5: Cutting clips...")
         raw_clips = []
@@ -221,8 +233,9 @@ def run_pipeline(
             )
             raw_clips.append((i, hook, raw_path))
             vscore = hook.get("virality_score") or hook.get("score", "?")
+            selection = hook.get("selection_score", vscore)
             htype = hook.get("type", "unknown")
-            print(f"  Clip {i+1}: virality={vscore} type={htype} "
+            print(f"  Clip {i+1}: pick={selection} virality={vscore} type={htype} "
                   f"({hook['start']:.1f}s - {hook['end']:.1f}s)")
 
         print(f"\nStep 5/5: Reframing to 9:16 and burning captions...")
@@ -247,8 +260,13 @@ def run_pipeline(
                     hook_line=hook_line,
                 )
             else:
+                transcript = hook.get("transcript", [])
+                if not transcript:
+                    print(f"    Transcribing selected clip {i+1} for subtitles...")
+                    transcript = transcribe_clip(raw_path)
+                    hook["transcript"] = transcript
                 ass = generate_ass(
-                    hook.get("transcript", []),
+                    transcript,
                     clip_start=clip_start_abs,
                     hook_line=hook_line,
                 )
@@ -275,6 +293,7 @@ def run_pipeline(
         print()
         for i, (_, hook, _) in enumerate(raw_clips):
             vscore = hook.get("virality_score") or round((hook.get("score", 0)) * 10)
+            selection = hook.get("selection_score", vscore)
             htype = hook.get("type", "?")
             reason = hook.get("reason", "")
             hook_line = hook.get("hook_line", "")
@@ -282,7 +301,13 @@ def run_pipeline(
             f_ = hook.get("flow_score", "-")
             v = hook.get("value_score", "-")
             t = hook.get("trend_score", "-")
-            print(f"  #{i+1} virality={vscore} [{htype}] H:{h} F:{f_} V:{v} T:{t}")
+            c = hook.get("conflict_score", "-")
+            s = hook.get("surprise_score", "-")
+            r = hook.get("reaction_score", "-")
+            p = hook.get("payoff_score", "-")
+            cp = hook.get("context_penalty", "-")
+            print(f"  #{i+1} pick={selection} virality={vscore} [{htype}] H:{h} F:{f_} V:{v} T:{t}")
+            print(f"      hot metrics: conflict={c} surprise={s} reaction={r} payoff={p} context_penalty={cp}")
             if hook_line:
                 print(f"      hook line: \"{hook_line}\"")
             if reason:
@@ -294,6 +319,7 @@ def run_pipeline(
             "clips": final_clips,
             "hooks": hooks,
             "thumbnails_dir": os.path.abspath(thumbnails_dir) if save_thumbnails else "",
+            "analyze_only": False,
         }
 
     except KeyboardInterrupt:
@@ -317,6 +343,8 @@ def main():
             output_dir=args.output,
             captions_srt_path=args.captions_srt,
             focus_prompt=args.focus_prompt,
+            hook_profile=args.hook_profile,
+            analyze_only=args.analyze_only,
             save_thumbnails=args.save_thumbnails,
         )
     except Exception as e:

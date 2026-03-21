@@ -9,20 +9,24 @@
 <body>
   <main class="shell">
     <section class="hero">
-      <p class="eyebrow">Run complete</p>
-      <h1>Your clips are ready</h1>
+      <p class="eyebrow">{% if analyze_only %}Hook analysis complete{% else %}Run complete{% endif %}</p>
+      <h1>{% if analyze_only %}Hook grades are ready{% else %}Your clips are ready{% endif %}</h1>
       <p class="lede"><a href="{{ url_for('index') }}">Run another video</a></p>
     </section>
 
     <section class="card">
-      <h2>Outputs</h2>
+      <h2>{% if analyze_only %}Analysis output{% else %}Outputs{% endif %}</h2>
       <p><a href="{{ url_for('serve_run_file', run_id=run_id, filename=hooks_path) }}">Download hooks.json</a></p>
 
+      {% if clips %}
       <div class="list">
         {% for clip in clips %}
         <a class="list-item" href="{{ url_for('serve_run_file', run_id=run_id, filename=clip) }}">{{ clip }}</a>
         {% endfor %}
       </div>
+      {% else %}
+      <p class="helper-copy">No clips were exported in this run. This mode scored the hooks first so you can inspect the grades and hook choices.</p>
+      {% endif %}
     </section>
 
     {% if thumbnails %}
@@ -40,15 +44,39 @@
     {% endif %}
 
     <section class="card">
-      <h2>Ranked hooks</h2>
+      <h2>Ranked hooks and grades</h2>
+      <p class="helper-copy">Pick score is the custom ranking used to choose the winner. Virality is the broad score. H = hook strength, F = flow, V = emotional value, T = trend fit.</p>
       <div class="hook-grid">
         {% for hook in hooks %}
         <article class="hook-card">
-          <div class="meta">Virality {{ hook.virality_score }} | {{ hook.type }}</div>
+          <div class="grade-row">
+            <div class="grade-pill">{{ hook.selection_score or hook.virality_score }}</div>
+            <div>
+              <div class="meta">Pick score</div>
+              <div class="hook-type">{{ hook.type }}</div>
+            </div>
+          </div>
+
           <h3>{{ hook.hook_line or "No hook line" }}</h3>
-          <p>{{ "%.1f"|format(hook.start) }}s to {{ "%.1f"|format(hook.end) }}s</p>
+          <p class="time-row">Virality grade: {{ hook.virality_score }}</p>
+          <p class="time-row">Clip: {{ "%.1f"|format(hook.start) }}s to {{ "%.1f"|format(hook.end) }}s</p>
+          <p class="time-row">Hook lands at: {{ "%.1f"|format(hook.hook_time or hook.start) }}s</p>
           <p>{{ hook.reason }}</p>
-          <p class="scoreline">H {{ hook.hook_score }} | F {{ hook.flow_score }} | V {{ hook.value_score }} | T {{ hook.trend_score }}</p>
+
+          <div class="score-grid">
+            <div class="score-box"><span>H</span><strong>{{ hook.hook_score }}</strong></div>
+            <div class="score-box"><span>F</span><strong>{{ hook.flow_score }}</strong></div>
+            <div class="score-box"><span>V</span><strong>{{ hook.value_score }}</strong></div>
+            <div class="score-box"><span>T</span><strong>{{ hook.trend_score }}</strong></div>
+          </div>
+
+          <div class="score-grid">
+            <div class="score-box"><span>Conflict</span><strong>{{ hook.conflict_score or 0 }}</strong></div>
+            <div class="score-box"><span>Surprise</span><strong>{{ hook.surprise_score or 0 }}</strong></div>
+            <div class="score-box"><span>Reaction</span><strong>{{ hook.reaction_score or 0 }}</strong></div>
+            <div class="score-box"><span>Payoff</span><strong>{{ hook.payoff_score or 0 }}</strong></div>
+          </div>
+          <p class="time-row">Context penalty: {{ hook.context_penalty or 0 }}</p>
         </article>
         {% endfor %}
       </div>

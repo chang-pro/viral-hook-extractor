@@ -197,6 +197,11 @@ small {
   font: 15px/1.6 Arial, sans-serif;
 }
 
+.helper-copy {
+  color: var(--muted);
+  font: 14px/1.5 Arial, sans-serif;
+}
+
 .error {
   margin-bottom: 16px;
   padding: 14px 16px;
@@ -251,6 +256,62 @@ a {
 .scoreline {
   color: var(--muted);
   font: 13px/1.4 Arial, sans-serif;
+}
+
+.grade-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.grade-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 999px;
+  background: linear-gradient(135deg, var(--accent), #ef7b48);
+  color: white;
+  font: 700 28px/1 Arial, sans-serif;
+}
+
+.hook-type {
+  font: 700 16px/1.2 Arial, sans-serif;
+  text-transform: capitalize;
+}
+
+.time-row {
+  margin-bottom: 8px;
+  color: var(--muted);
+  font: 14px/1.45 Arial, sans-serif;
+}
+
+.score-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.score-box {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  background: #fffaf5;
+  text-align: center;
+}
+
+.score-box span {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font: 12px/1 Arial, sans-serif;
+}
+
+.score-box strong {
+  font: 700 22px/1 Arial, sans-serif;
 }
 
 @media (max-width: 700px) {

@@ -74,6 +74,8 @@ def run_job():
             output_dir=str(run_dir),
             captions_srt_path=captions_path,
             focus_prompt=request.form.get("focus_prompt", "").strip(),
+            hook_profile=request.form.get("hook_profile", "hot").strip() or "hot",
+            analyze_only=bool(request.form.get("analyze_only")),
             save_thumbnails=bool(request.form.get("save_thumbnails")),
         )
     except ValueError as exc:
@@ -99,6 +101,7 @@ def run_job():
         thumbnails=thumbnails,
         hooks=result["hooks"],
         hooks_path=Path(result["hooks_path"]).name,
+        analyze_only=result.get("analyze_only", False),
     )
 
 
