@@ -4,6 +4,12 @@ Open source AI video clipper for finding high-retention hooks in long videos.
 
 This project is aimed at Jamaican drama, lifestyle, and patois-heavy content where transcription-first clipping tools often miss the real moment. It uses Gemini CLI with your signed-in Google account to rank hooks, then cuts, reframes, captions, and optionally exports thumbnails.
 
+**⚡ At a glance**
+- 🎯 Video-first hook ranking, tuned for Jamaican/patois content that transcript-first tools mishear
+- 🔁 Two-pass flow: pick the candidate clips first, then transcribe only the winners for captions
+- ✂️ Cuts top clips, reframes to vertical 9:16, burns ASS captions, and exports thumbnails
+- 🆓 Runs on a signed-in Google account via Gemini CLI — no per-call API billing
+
 ## Current features
 
 1. Analyze local MP4 files with Gemini CLI.
