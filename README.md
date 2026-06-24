@@ -31,7 +31,7 @@ Opus Clip is strong on automated clipping, but the weak point for this use case 
 ### Install
 
 ```powershell
-cd C:\Users\User\code\viral-hook-extractor
+cd C:\path\to\viral-hook-extractor
 pip install -r requirements.txt
 gemini
 ```
@@ -42,7 +42,7 @@ When Gemini CLI opens, choose **Sign in with Google**. If you have Google AI Pro
 If you want stronger local subtitles and diarization, install the optional ASR stack in a repo-local venv:
 
 ```powershell
-cd C:\Users\User\code\viral-hook-extractor
+cd C:\path\to\viral-hook-extractor
 python -m venv .venv
 .venv\Scripts\python -m pip install --upgrade pip setuptools wheel
 .venv\Scripts\python -m pip install torch==2.8.0+cu128 torchaudio==2.8.0+cu128 torchvision==0.23.0+cu128 --index-url https://download.pytorch.org/whl/cu128
